@@ -1,0 +1,255 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Clinic {
+  id        String   @id @default(cuid())
+  name      String
+  timezone  String   @default("America/Recife")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  units      Unit[]
+  staff      Staff[]
+  services   Service[]
+  sessions   Session[]
+  holds      Hold[]
+  bookings   Booking[]
+
+  channels   ClinicChannel[]
+  policies   ClinicPolicy[]
+  faqs       ClinicFAQ[]
+  messageLog MessageLog[]
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  name      String
+  address   String
+
+  staff     Staff[]
+  holds     Hold[]
+  bookings  Booking[]
+
+  @@index([clinicId])
+}
+
+model Staff {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  name      String
+  specialty String?
+
+  unitId    String?
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+
+  // Deixe opcional no MVP (você conecta Google depois)
+  googleCalendarId    String?
+  googleRefreshToken  String?
+
+  // ✅ lado inverso da relação 1:1 com StaffCalendarConnection
+  calendarConnection  StaffCalendarConnection?
+
+  services  StaffService[]
+  bookings  Booking[]
+  holds     Hold[]
+
+  @@index([clinicId])
+  @@index([unitId])
+}
+
+model Service {
+  id               String   @id @default(cuid())
+  clinicId         String
+  clinic           Clinic   @relation(fields: [clinicId], references: [id])
+
+  name             String
+  durationMin      Int
+  bufferBeforeMin  Int      @default(0)
+  bufferAfterMin   Int      @default(0)
+
+  staff            StaffService[]
+  holds            Hold[]
+  bookings         Booking[]
+
+  @@index([clinicId])
+}
+
+model StaffService {
+  staffId   String
+  serviceId String
+
+  staff     Staff   @relation(fields: [staffId], references: [id])
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  @@id([staffId, serviceId])
+  @@index([serviceId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  channel   String   // "whatsapp" | "voice"
+  userKey   String   // telefone (E.164)
+  stateJson Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clinicId, channel, userKey])
+  @@index([clinicId, channel])
+}
+
+model Hold {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  staffId   String
+  staff     Staff    @relation(fields: [staffId], references: [id])
+
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id])
+
+  unitId    String?
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+
+  startUtc  DateTime
+  endUtc    DateTime
+
+  // ✅ Anti-conflito “de verdade” sem quebrar histórico:
+  // - quando ativo, setamos activeSlotKey = `${staffId}:${startUtc.toISOString()}`
+  // - quando inativo/expirado, activeSlotKey = null (e null pode repetir)
+  activeSlotKey String? @unique
+
+  active    Boolean  @default(true)
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([clinicId, active, expiresAt])
+  @@index([staffId, startUtc])
+}
+
+model Booking {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  staffId   String
+  staff     Staff    @relation(fields: [staffId], references: [id])
+
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id])
+
+  unitId    String?
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+
+  patientName  String
+  patientPhone String
+
+  startUtc  DateTime
+  endUtc    DateTime
+
+  status    String   @default("confirmed") // confirmed|canceled|failed
+  active    Boolean  @default(true)
+
+  // ✅ Anti-duplicação por retry
+  idempotencyKey String @unique
+
+  // ✅ Mesma estratégia do Hold (só existe quando ativo)
+  activeSlotKey  String? @unique
+
+  googleEventId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clinicId, patientPhone, createdAt])
+  @@index([staffId, startUtc])
+}
+
+model ClinicChannel {
+  id         String   @id @default(cuid())
+  clinicId   String
+  clinic     Clinic   @relation(fields: [clinicId], references: [id])
+
+  channel    String   // "whatsapp" | "voice"
+  externalId String   // ex: WHATSAPP_PHONE_NUMBER_ID (ou Twilio number)
+  isActive   Boolean  @default(true)
+
+  createdAt  DateTime @default(now())
+
+  @@unique([channel, externalId])
+  @@index([clinicId, channel])
+}
+
+model ClinicPolicy {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  key       String   // ex: "cancel_window_hours", "late_tolerance_min"
+  valueJson Json
+
+  @@unique([clinicId, key])
+}
+
+model ClinicFAQ {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  question  String
+  answer    String
+  tags      String?
+
+  @@index([clinicId])
+}
+
+model MessageLog {
+  id        String   @id @default(cuid())
+  clinicId  String
+  clinic    Clinic   @relation(fields: [clinicId], references: [id])
+
+  channel   String
+  userKey   String   // telefone
+  direction String   // "in" | "out"
+  text      String
+  rawJson   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([clinicId, channel, userKey, createdAt])
+}
+
+model StaffCalendarConnection {
+  id           String   @id @default(cuid())
+  staffId      String   @unique
+  staff        Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  provider     String   // "google"
+  calendarId   String   @default("primary") // "primary" ou email do calendário
+
+  accessToken  String?
+  refreshToken String
+  expiresAt    DateTime?
+  scope        String?
+  tokenType    String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([provider, calendarId])
+}

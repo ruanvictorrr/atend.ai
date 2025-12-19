@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: atendai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: atendai
+      POSTGRES_PASSWORD: atendai
+      POSTGRES_DB: atendai
+    ports:
+      - "5432:5432"
+    volumes:
+      - atendai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atendai -d atendai"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  atendai_pgdata:
