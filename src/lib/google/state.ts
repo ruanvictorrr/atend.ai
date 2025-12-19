@@ -13,7 +13,7 @@ function b64urlDecode(s: string) {
 }
 
 export function signOAuthState(payload: StatePayload) {
-  const secret = process.env.OAUTH_STATE_SECRET;
+  const secret = (process.env.OAUTH_STATE_SECRET ?? "").trim();
   if (!secret) throw new Error("Missing OAUTH_STATE_SECRET");
   const body = b64url(Buffer.from(JSON.stringify(payload), "utf8"));
   const sig = b64url(crypto.createHmac("sha256", secret).update(body).digest());
@@ -21,10 +21,12 @@ export function signOAuthState(payload: StatePayload) {
 }
 
 export function verifyOAuthState(state: string): StatePayload {
-  const secret = process.env.OAUTH_STATE_SECRET;
+  const secret = (process.env.OAUTH_STATE_SECRET ?? "").trim();
   if (!secret) throw new Error("Missing OAUTH_STATE_SECRET");
+
   const [body, sig] = state.split(".");
   if (!body || !sig) throw new Error("Invalid state");
+
   const expected = b64url(crypto.createHmac("sha256", secret).update(body).digest());
   if (expected !== sig) throw new Error("Invalid state signature");
 
